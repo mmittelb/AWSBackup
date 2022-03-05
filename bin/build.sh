@@ -1,2 +1,2 @@
 #! /bin/bash
-docker build --platform linux/arm64 -t docker-volume-backup:latest .
+docker build --platform linux/amd64 -t mmittelb/aws-backup:latest .

@@ -9,11 +9,13 @@ from logging import DEBUG, INFO, Formatter, StreamHandler, getLogger
 from pathlib import Path
 from typing import Any, Dict
 
-from .mycrypt import decrypt, encrypt, load_public_key, prompt_private_key
+from .mycrypt import \
+    decrypt, encrypt, gen_certificate, load_public_key, prompt_private_key
 from .tar import pack_lzma, unpack_lzma
 from .storage import download, upload
 
-KEY_OUTPUT_DIR = Path("/keyout/")
+DATA_DIR = Path("/data/")
+CONFIG_DIR = Path("/config/")
 logger = getLogger(__file__)
 
 
@@ -52,22 +54,22 @@ def is_dir_empty(dirname: Path) -> bool:
         raise RuntimeError(f"{dirname} is not a directory.")
 
 
-def backup(cert: Path, bucket: str, name: str, **_: Dict[str, Any]) -> None:
+def backup(bucket: str, name: str, **_: Dict[str, Any]) -> None:
     """Pack and encrypt data in '/data/'. Then upload to AWS S3 storage.
 
     Args:
         cert (Path): path to certificate used for encryption.
         bucket (str): bucket name
     """
-    if is_dir_empty(Path("/data/")):
+    if is_dir_empty(DATA_DIR):
         logger.error("No point in backing up an empty volume.")
     else:
         logger.info("Loading certificate.")
-        with open(cert, "rb") as bytesio:
+        with open(CONFIG_DIR/"cert.pem", "rb") as bytesio:
             public_key = load_public_key(bytesio)
 
         logger.info("Packing data.")
-        pack_lzma(Path("/data/"), Path("/tmp/backup.tar.xz"))
+        pack_lzma(DATA_DIR, Path("/tmp/backup.tar.xz"))
 
         logger.info("Encrypting data.")
         encrypt(Path("/tmp/backup.tar.xz"), public_key)
@@ -76,7 +78,7 @@ def backup(cert: Path, bucket: str, name: str, **_: Dict[str, Any]) -> None:
         upload(bucket, Path("/tmp/backup.tar.xz.crypt"), name)
 
 
-def restore(cert: Path, bucket: str, name: str, **_: Dict[str, Any]) -> None:
+def restore(bucket: str, name: str, **_: Dict[str, Any]) -> None:
     """Download backup, decrypt and unpack.
 
     Args:
@@ -84,24 +86,32 @@ def restore(cert: Path, bucket: str, name: str, **_: Dict[str, Any]) -> None:
         bucket (str): bucket name
         name (str): name of file in bucket
     """
-    if is_dir_empty(Path("/data/")):
+    if is_dir_empty(DATA_DIR):
         logger.info("Loading certificate.")
-        with open(cert, "rb") as bytesio:
+        with open(CONFIG_DIR/"cert.pem", "rb") as bytesio:
             public_key = load_public_key(bytesio)
-        private_key = prompt_private_key(public_key)
-        logger.info("Downloading backup.")
-        download(bucket, name, Path("/tmp/backup.tar.xz.crypt"))
-        logger.info("Decrypting backup.")
-        decrypt(private_key, Path("/tmp/backup.tar.xz.crypt"))
-        logger.info("Unpacking backup.")
-        unpack_lzma(Path("/tmp/backup.tar.xz.crypt"))
+        private_key = prompt_private_key(CONFIG_DIR/"key.pem")
+        if private_key is None:
+            logger.error("Could not load private key.")
+        elif private_key.public_key().public_numbers() != \
+                public_key.public_numbers():
+            logger.error(
+                "Private key does not belong to public key."
+            )
+        else:
+            logger.info("Downloading backup.")
+            download(bucket, name, Path("/tmp/backup.tar.xz.crypt"))
+            logger.info("Decrypting backup.")
+            decrypt(private_key, Path("/tmp/backup.tar.xz.crypt"))
+            logger.info("Unpacking backup.")
+            unpack_lzma(Path("/tmp/backup.tar.xz"))
     else:
         logger.error("Volume must be empty.")
 
 
 def gen_cert(**_: Dict[str, Any]) -> None:
     """Generate self signed certificate."""
-    if KEY_OUTPUT_DIR.exists():
+    if CONFIG_DIR.exists():
         logger.info(
             "Specify password for private key. Leave empty for no password."
         )
@@ -111,15 +121,15 @@ def gen_cert(**_: Dict[str, Any]) -> None:
         except EOFError:
             logger.warning("No tty. Generate certificate without password.")
             password = None
-        priv, pub = AsymmetricFernet.gen_certificate(password)
+        priv, pub = gen_certificate(password)
 
-        # never overwrite
-        keypath = ensure_unique(KEY_OUTPUT_DIR/"key.pem")
+        # prevent overwrite
+        keypath = ensure_unique(CONFIG_DIR/"key.pem")
         with open(keypath, "wb") as bytesio:
             bytesio.write(priv)
         logger.info("Successfully wrote '%s'", keypath)
 
-        certpath = ensure_unique(KEY_OUTPUT_DIR/"cert.pem")
+        certpath = ensure_unique(CONFIG_DIR/"cert.pem")
         with open(certpath, "wb") as bytesio:
             bytesio.write(pub)
         logger.info("Successfully wrote '%s'", certpath)
@@ -128,19 +138,16 @@ def gen_cert(**_: Dict[str, Any]) -> None:
 
 
 def main():
-    """Main entry point."""
+    """Entrypoint."""
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("-v", "--verbose", help="enable debug log")
     subparsers = parser.add_subparsers(help="Choose mode.", required=True)
 
+    # backup subparser
     backup_parser = subparsers.add_parser(
         "backup", help="Backup files mounted to /data/ to AWS S3 storage."
     )
     backup_parser.set_defaults(func=backup)
-    backup_parser.add_argument(
-        "--cert", type=Path, default=Path("/cert/cert.pem"),
-        help="Path to certificate file. Defaults to '/cert/cert.pem'."
-    )
     backup_parser.add_argument(
         "bucket", type=str, help="Select bucket to store backup."
     )
@@ -148,13 +155,28 @@ def main():
         "name", type=str, help="Name of file in bucket."
     )
 
+    # restore backup subparser
+    restore_parser = subparsers.add_parser(
+        "restore", help="Restore files from AWS S3 storage to /data/."
+    )
+    restore_parser.set_defaults(func=restore)
+    restore_parser.add_argument(
+        "bucket", type=str, help="Select bucket to restore backupfrom."
+    )
+    restore_parser.add_argument(
+        "name", type=str, help="Name of file in bucket."
+    )
+
+    # generate certificate subparser
     gen_cert_parser = subparsers.add_parser(
         "gencert", help="Generate self-signed certificate."
     )
     gen_cert_parser.set_defaults(func=gen_cert)
 
+    # parse
     args = parser.parse_args()
 
+    # setup logging
     root_logger = getLogger()
     loghandler = StreamHandler()
     loghandler.setFormatter(
@@ -164,6 +186,8 @@ def main():
     root_logger.setLevel(
         DEBUG if args.verbose else INFO
     )
+
+    # run
     args.func(**args.__dict__)
 
 

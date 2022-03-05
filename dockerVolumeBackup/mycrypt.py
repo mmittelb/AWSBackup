@@ -224,30 +224,38 @@ def gen_certificate(password: str = None) -> Tuple[bytes, bytes]:
     )
 
 
-def prompt_private_key(public_key: rsa.RSAPublicKey) -> rsa.RSAPrivateKey:
+def prompt_private_key(
+    priv_key_path: Path
+) -> Optional[rsa.RSAPrivateKey]:
     """Prompt for private key.
 
     Args:
-        public_key (rsa.RSAPublicKey): corresponding public key
+        priv_key_path (Path): path to private key
 
     Raises:
         AsymmetricFernetError: Could not load private key.
 
     Returns:
-        rsa.RSAPrivateKey: private key
+        Optional[rsa.RSAPrivateKey]: private key
     """
-    for _ in range(3):
-        key = getpass("Paste private key:")
-        password = getpass("Password:")
-        password = password.encode() if password else None
+    private_key = None
+    for ntry in range(3):
         try:
-            private_key = load_private_key(BytesIO(key.encode()), password)
-        except Exception as error:
-            logger.warning("Failed to load private key: %s", repr(error))
-        if private_key.public_key().public_numbers() == \
-                public_key.public_numbers:
-            return private_key
-        else:
-            logger.warning("Private key does not fit public key.")
-            continue
-    raise AsymmetricFernetError("Could not load private key.")
+            password = getpass("Private Key Password:")
+            password = password.encode() if password else None
+            try:
+                with open(priv_key_path, "rb") as bytesio:
+                    private_key = load_private_key(bytesio, password)
+                    break
+            except (ValueError, TypeError) as error:
+                logger.warning("Failed to load private key: %s", str(error))
+
+        except EOFError:
+            if ntry == 0:
+                logger.warning("No tty. Loading private key without password.")
+                password = None
+            else:
+                # no need to try again if no tty exists
+                break
+
+    return private_key
