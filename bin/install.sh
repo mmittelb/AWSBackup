@@ -26,6 +26,10 @@ EOF
 }
 
 function installScript {
+    if [ -f /usr/local/sbin/aws-backup ]; then
+        echo "Backing up old script."
+        mv /usr/local/sbin/aws-backup /usr/local/sbin/aws-backup.old
+    fi
     curl -o /usr/local/sbin/aws-backup https://raw.githubusercontent.com/mmittelb/AWSBackup/main/bin/aws-backup.sh
     chmod 755 /usr/local/sbin/aws-backup
 }
