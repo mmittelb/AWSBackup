@@ -36,6 +36,7 @@ function installScript {
 
 if [ $(id -u) -ne 0 ]; then
     echo "Please run as root."
+    exit 1
 fi
 if [ $(which docker) ]; then
     if [ ! -d ~/.dockerVolumeBackup ]; then
