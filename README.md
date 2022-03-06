@@ -1,9 +1,10 @@
 # AWS Backup
-This software can be used to backup docker volumes or part of the file system to a AWS S3 bucket. The data is AES encrypted.
+This KISS software backups docker volumes or part of the file system to a AWS S3 bucket. The data is AES encrypted.
 Disclaimer: Backups and restore operations are dangerous. Though I tried my best to decrease the risc of dataloss and leakage be careful. I am not responsible for lost data.
 ## Installation
 - Install docker client.
 - Setup AWS S3:
+    - Create S3 bucket. Pro tip: use lifecycle rules in the `Management` tab to keep a fixed amount of versions.
     - Create a policy. Don't forget to replace `<BUCKET_NAME>` with the name of your backup bucket.
     ```
     ...
@@ -34,7 +35,13 @@ wget https://raw.githubusercontent.com/mmittelb/AWSBackup/main/bin/install.sh &&
 `aws-backup backup <BUCKET_NAME> <VOLUME_NAME or PATH>`
 ### Restore
 Remember to put key into `/root/.aws-backup/key.pem`.
+
 `aws-backup restore <BUCKET_NAME> <VOLUME_NAME or PATH>`
+
+## Deinstallation
+- Remove script `rm /usr/local/sbin/aws-backup`.
+- Remove docker image `docker image rm mmittelb/aws-backup`
+- WARNING!!! Remove runtime directory `rm -rf /root/.aws-backup` but keep key if you want to decrypt any backup in future.
 
 ## Implementation details
 ### Encryption
