@@ -8,7 +8,7 @@ function expandPath {
     echo "$(cd "$(dirname "$1")"; pwd)/$(basename "$1")"
 }
 
-if [ -z $1 -o -z $2 -o -z $3 ]; then 
+if [ -z "$1" -o -z "$2" -o -z "$3" ]; then 
     echo "Missing positional argument."
     help
 fi
@@ -37,6 +37,5 @@ fi
 docker run \
     --rm -it \
     -v "$mount" \
-    -v "$HOME/.dockerVolumeBackup:/config:ro" \
-    --env-file "$HOME/.dockerVolumeBackup/aws-creds" \
+    -v "$HOME/.aws-backup:/config:ro" \
     mmittelb/aws-backup:latest "$mode" "$bucket" "$filename"

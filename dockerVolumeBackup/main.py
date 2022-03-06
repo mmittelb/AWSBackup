@@ -11,8 +11,8 @@ from typing import Any, Dict
 
 from .mycrypt import \
     decrypt, encrypt, gen_certificate, load_public_key, prompt_private_key
-from .tar import pack_lzma, unpack_lzma
-from .storage import download, upload
+from .tar import pack_bzip2, unpack_bzip2
+from .storage import AWSBucket
 
 DATA_DIR = Path("/data/")
 CONFIG_DIR = Path("/config/")
@@ -64,18 +64,23 @@ def backup(bucket: str, name: str, **_: Dict[str, Any]) -> None:
     if is_dir_empty(DATA_DIR):
         logger.error("No point in backing up an empty volume.")
     else:
+        logger.info("Initialize AWS.")
+        aws = AWSBucket(bucket)
+
         logger.info("Loading certificate.")
         with open(CONFIG_DIR/"cert.pem", "rb") as bytesio:
             public_key = load_public_key(bytesio)
 
         logger.info("Packing data.")
-        pack_lzma(DATA_DIR, Path("/tmp/backup.tar.xz"))
+        pack_bzip2(DATA_DIR, Path("/tmp/backup.tar.bzip2"))
 
         logger.info("Encrypting data.")
-        encrypt(Path("/tmp/backup.tar.xz"), public_key)
+        encrypt(Path("/tmp/backup.tar.bzip2"), public_key)
 
         logger.info("Uploading data.")
-        upload(bucket, Path("/tmp/backup.tar.xz.crypt"), name)
+        aws.upload(Path("/tmp/backup.tar.bzip2.crypt"), name)
+
+        logger.info("Sank you for travelling wis Deutsche Bahn.")
 
 
 def restore(bucket: str, name: str, **_: Dict[str, Any]) -> None:
@@ -87,6 +92,9 @@ def restore(bucket: str, name: str, **_: Dict[str, Any]) -> None:
         name (str): name of file in bucket
     """
     if is_dir_empty(DATA_DIR):
+        logger.info("Initialize AWS.")
+        aws = AWSBucket(bucket)
+
         logger.info("Loading certificate.")
         with open(CONFIG_DIR/"cert.pem", "rb") as bytesio:
             public_key = load_public_key(bytesio)
@@ -100,11 +108,13 @@ def restore(bucket: str, name: str, **_: Dict[str, Any]) -> None:
             )
         else:
             logger.info("Downloading backup.")
-            download(bucket, name, Path("/tmp/backup.tar.xz.crypt"))
+            aws.download(name, Path("/tmp/backup.tar.bzip2.crypt"))
+
             logger.info("Decrypting backup.")
-            decrypt(private_key, Path("/tmp/backup.tar.xz.crypt"))
+            decrypt(private_key, Path("/tmp/backup.tar.bzip2.crypt"))
+
             logger.info("Unpacking backup.")
-            unpack_lzma(Path("/tmp/backup.tar.xz"))
+            unpack_bzip2(Path("/tmp/backup.tar.bzip2"))
     else:
         logger.error("Volume must be empty.")
 
