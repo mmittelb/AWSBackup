@@ -115,12 +115,25 @@ def gen_cert(**_: Dict[str, Any]) -> None:
         logger.info(
             "Specify password for private key. Leave empty for no password."
         )
-        try:
-            password = getpass()
-            password = password if password else None
-        except EOFError:
-            logger.warning("No tty. Generate certificate without password.")
-            password = None
+        # double check if password is correct
+        while True:
+            try:
+                password = getpass("Password:")
+                if password:
+                    if password == getpass("Confirm password:"):
+                        break
+                    else:
+                        logger.info(
+                            "Password confirmation failed. Try again."
+                        )
+                else:
+                    password = None
+            except EOFError:
+                logger.warning(
+                    "No tty. Generate certificate without password."
+                )
+                password = None
+                break
         priv, pub = gen_certificate(password)
 
         # prevent overwrite
